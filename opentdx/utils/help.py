@@ -4,6 +4,7 @@ from datetime import date, datetime
 import struct
 
 from opentdx.const import EX_MARKET, MARKET
+from opentdx.enums import IndustryCode
 from opentdx.utils.log import log
 
 def query_market(code) -> MARKET | None:
@@ -49,6 +50,16 @@ def exchange_board_code(board_symbol):
 
     return board_code
 
+def industry_to_board_symbol(industry_value:str) -> str:
+    # 从83005提取出3005，然后拼接为X3005
+    industry_str = str(industry_value)
+    suffix = industry_str[-4:]  # 获取后3位，如"005"
+    key = f"X{suffix}"  # 拼接为"X3005"
+    
+    try:
+        return str(IndustryCode[key].value)
+    except KeyError:
+        return ""  # 如果找不到对应的枚举项
 
 #### XXX: 分析了一下，貌似是类似utf-8的编码方式保存有符号数字
 def get_price(data, pos):

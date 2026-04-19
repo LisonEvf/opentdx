@@ -88,7 +88,7 @@ class CommonClientMixin:
 
     @require_sp_mode
     @update_last_ack_time
-    def get_board_members_quotes(self, board_symbol: str | CATEGORY | EX_CATEGORY = "881001", count=10000, sort_type: SORT_TYPE = SORT_TYPE.CHANGE_PCT, sort_order=SORT_ORDER.DESC, filter=0):
+    def get_board_members_quotes(self, board_symbol: str | CATEGORY | EX_CATEGORY = "881001", count=100000, sort_type: SORT_TYPE = SORT_TYPE.CHANGE_PCT, sort_order=SORT_ORDER.DESC, filter=0):
         MAX_LIST_COUNT = 80
         security_list = []
         
@@ -111,7 +111,7 @@ class CommonClientMixin:
 
     @require_sp_mode
     # @update_last_ack_time
-    def get_board_members(self, board_symbol: str, count=10000):
+    def get_board_members(self, board_symbol: str, count=100000):
         MAX_LIST_COUNT = 80
         security_list = []
         

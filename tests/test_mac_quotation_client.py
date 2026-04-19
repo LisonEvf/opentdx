@@ -27,6 +27,16 @@ class TestMacQuotationClientMixin:
         mqc.login()
         result = mqc.get_quotes(MARKET.SZ, '000001')
         result2 = qc.get_quotes(MARKET.SZ, '000001')
+        
+        # 服务器ip不同,可能会导致 server_time 字段不一致
+        for item in result:
+            if isinstance(item, dict):
+                item.pop('server_time', None)  # 安全删除，不存在也不报错
+
+        for item in result2:
+            if isinstance(item, dict):
+                item.pop('server_time', None)
+        
         assert result == result2
 
 class TestMacQuotationClientBoard:
