@@ -42,7 +42,7 @@ if __name__ == "__main__":
         
     # exit()
     board_symbol = str(CATEGORY.A.value)
-    board_symbol = "880214"
+    board_symbol = "880548"
     ah_code_bit = 0x4a
     lot_size_bit = 0x23
     industry_bit = 0x1c
@@ -52,10 +52,10 @@ if __name__ == "__main__":
     df = pd.DataFrame(rs)
 
     df.to_csv("test.csv")
-    # # 修正这一行
-    # if 'industry' in df.columns:  # 正确的检查列是否存在的方式
-    #     df['board_symbol'] = df['industry'].apply(lambda x: industry_to_board_symbol(x))
-    #     df = df[['symbol','industry','board_symbol']]
+    # 修正这一行
+    if 'industry' in df.columns:  # 正确的检查列是否存在的方式
+        df['board_symbol'] = df['industry'].apply(lambda x: industry_to_board_symbol(x))
+        df = df[['symbol','industry','board_symbol']]
     
     print(df)
     # print(df)

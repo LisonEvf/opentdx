@@ -3,7 +3,7 @@ from typing import Union, List,  Optional
 import pandas as pd
 
 from .baseStockClient import update_last_ack_time
-from opentdx.const import ADJUST, BOARD_TYPE, CATEGORY, EX_CATEGORY, MARKET, PERIOD, EX_BOARD_TYPE, SORT_TYPE, SORT_ORDER, mac_hosts, mac_ex_hosts
+from opentdx.const import ADJUST, BOARD_TYPE, CATEGORY, EX_CATEGORY, EX_MARKET, MARKET, PERIOD, EX_BOARD_TYPE, SORT_TYPE, SORT_ORDER, mac_hosts, mac_ex_hosts
 from opentdx.parser.mac_quotation import BoardCount, BoardList, BoardMembers, BoardMembersQuotes, SymbolBar, SymbolBelongBoard, SymbolZJLX
 from opentdx.utils.log import log
 from opentdx.utils.bitmap import fields_to_filter
@@ -365,8 +365,79 @@ class CommonClientMixin:
     @require_sp_mode    
     @update_last_ack_time
     def get_symbol_bars(
-        self, market: MARKET, code: str, period: PERIOD, times: int = 1, start: int = 0, count: int = 800, fq: ADJUST = ADJUST.NONE
+        self, market: MARKET | EX_MARKET, code: str, period: PERIOD, times: int = 1, start: int = 0, count: int = 800, fq: ADJUST = ADJUST.NONE
     ):
+        """
+        获取股票/港股/美股/板块/ETF等的K线数据
+        
+        分页获取指定股票的历史K线数据，支持多种周期和复权设置。
+        内部会自动处理分页逻辑，每次最多获取700条K线数据。
+
+        Args:
+            market: 市场类型，支持A股市场和扩展市场
+                - MARKET.SH: 上海证券交易所
+                - MARKET.SZ: 深圳证券交易所  
+                - EX_MARKET.HK: 港股市场
+                - EX_MARKET.US: 美股市场
+                - 其他市场类型参见 MARKET 和 EX_MARKET 枚举
+            code: 股票代码，如 "000001"（平安银行）、"00700"（腾讯控股）
+                - A股代码格式：6位数字
+                - 港股代码格式：5位数字（可能以0开头）
+                - 美股代码格式：字母组成
+            period: K线周期类型，如 PERIOD.MIN1（1分钟）、PERIOD.DAY（日线）
+                - PERIOD.MIN1: 1分钟线
+                - PERIOD.MIN5: 5分钟线
+                - PERIOD.MIN15: 15分钟线
+                - PERIOD.MIN30: 30分钟线
+                - PERIOD.HOUR: 1小时线
+                - PERIOD.DAY: 日线
+                - PERIOD.WEEK: 周线
+                - PERIOD.MONTH: 月线
+                - 其他周期类型参见 PERIOD 枚举
+            times: 重复次数，默认为1（通常不需要修改）
+            start: 开始位置，默认为0（从第一条数据开始获取）
+            count: 需要获取的最大K线数量，默认800
+                - 实际每次请求最多700条（受接口限制）
+                - 内部会自动分页处理超过700条的数据
+            fq: 复权类型，默认不复权（ADJUST.NONE）
+                - ADJUST.NONE: 不复权
+                - ADJUST.FORWARD: 前复权
+                - ADJUST.BACKWARD: 后复权
+                - 其他复权类型参见 ADJUST 枚举
+
+        Returns:
+            list: 包含K线数据的列表，每个元素为一个字典，包含：
+                - datetime: 时间戳
+                - open: 开盘价
+                - high: 最高价
+                - low: 最低价
+                - close: 收盘价
+                - volume: 成交量
+                - amount: 成交额
+                - 等其他K线相关字段
+
+        Example:
+            >>> # 获取平安银行的日线数据（最近100条）
+            >>> bars = client.get_symbol_bars(MARKET.SZ, '000001', PERIOD.DAY, count=100)
+            >>> print(f"共获取 {len(bars)} 条K线数据")
+            >>> 
+            >>> # 获取贵州茅台的前复权日线数据
+            >>> bars = client.get_symbol_bars(MARKET.SH, '600519', PERIOD.DAY, count=200, fq=ADJUST.FORWARD)
+            >>> 
+            >>> # 获取港股腾讯控股的小时线数据
+            >>> bars = client.get_symbol_bars(EX_MARKET.HK, '00700', PERIOD.HOUR, count=50)
+            >>> 
+            >>> # 获取美股苹果公司的5分钟线
+            >>> bars = client.get_symbol_bars(EX_MARKET.US, 'AAPL', PERIOD.MIN5, count=200)
+
+        Note:
+            - 此方法需要在 SP 模式下使用
+            - 内部会自动处理分页，每次请求最多700条K线数据
+            - 当返回的数据量小于请求数量时，会自动停止分页
+            - 如果股票代码不存在或没有K线数据，返回空列表
+            - 对于大数量请求，会自动分页处理以提高效率
+            - 支持A股、港股、美股等多个市场的K线数据获取
+        """
         MAX_LIST_COUNT = 700
         page_size = min(count, MAX_LIST_COUNT)
         security_list = []

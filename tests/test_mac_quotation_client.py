@@ -1,4 +1,5 @@
-from opentdx.const import ADJUST, BOARD_TYPE, EX_BOARD_TYPE, EX_MARKET, MARKET, PERIOD, SORT_TYPE, SORT_ORDER
+from opentdx.client import macQuotationClient
+from opentdx.const import ADJUST, BOARD_TYPE, CATEGORY, EX_BOARD_TYPE, EX_MARKET, MARKET, PERIOD, SORT_TYPE, SORT_ORDER
 import pandas as pd
 from opentdx.utils.help import industry_to_board_symbol, ah_code_to_symbol, lot_size_to_symbol
 from opentdx.utils.bitmap import PRESET_FIELDS
@@ -164,7 +165,7 @@ class TestMacQuotationClientBoard:
 class TestMacQuotationClientBoardFields:
     """板块 API f"""
 
-    def test_base_info(self, mqc):
+    def test_base_info(self, mqc:macQuotationClient):
         
         print("支持自定义字段 ohlc")
 
@@ -174,11 +175,12 @@ class TestMacQuotationClientBoardFields:
         for field in PRESET_FIELDS['basic']:
             assert field in df.columns, f"字段 {field} 不在返回数据中"
             
-    def test_list_fields(self, mqc):
+    def test_list_fields(self, mqc:macQuotationClient):
         
         print("支持自定义字段 ohlc")
-        fields = ['open','high','low','close','vol','amount','ah_code','lot_size','industry']
-        rs = mqc.get_board_members_quotes(board_symbol="881394",count=300, fields=fields)
+        category = CATEGORY.A
+        fields = ['pre_close','open','high','low','close','vol','amount','ah_code','lot_size','industry']
+        rs = mqc.get_board_members_quotes(board_symbol=category,count=300, fields=fields)
         df = pd.DataFrame(rs)
   
         for field in fields:

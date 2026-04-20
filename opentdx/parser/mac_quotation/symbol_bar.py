@@ -32,7 +32,7 @@ def combine_to_datetime(ymd, date_num, format_tdx_time=False):
 
 @register_parser(0x122E, 1)
 class SymbolBar(BaseParser):
-    def __init__(self, market: Union[MARKET, EX_MARKET], code: str, period: PERIOD, times: int = 1, start: int = 0, count: int = 700, fq: ADJUST = ADJUST.NONE):
+    def __init__(self, market: MARKET | EX_MARKET, code: str, period: PERIOD, times: int = 1, start: int = 0, count: int = 700, fq: ADJUST = ADJUST.NONE):
         self.body = struct.pack("<H22sHH I HH bbb bH4s", market.value, code.encode("gbk"), period.value, times, start, count, fq.value, 1, 1, 0, 1, 0, b"")
         self.period = period
         # print("16进制: " + " ".join(f"{b:02x}" for b in self.body))
