@@ -35,13 +35,13 @@ def exchange_board_code(board_symbol):
     elif board_symbol.startswith("000"):
         # 000686 => 31686
         board_code = 31000 + int(board_symbol)
-    elif board_symbol.startswith("399"):
+    elif board_symbol.startswith("399") and len(board_symbol) == 6:
         # 399372 => 30399
         board_code = int(board_symbol) - 399000 + 30000
-    elif board_symbol.startswith("899"):
+    elif board_symbol.startswith("899") and len(board_symbol) == 6:
         # 899050 => 32050
         board_code = int(board_symbol) - 899000 + 32000
-    elif board_symbol.startswith("88"):
+    elif board_symbol.startswith("88") and len(board_symbol) == 6:
         # 880686 => 20686
         board_code = int(board_symbol) - 880000 + 20000
     else:
@@ -60,6 +60,41 @@ def industry_to_board_symbol(industry_value:str) -> str:
         return str(IndustryCode[key].value)
     except KeyError:
         return ""  # 如果找不到对应的枚举项
+    
+def ah_code_to_symbol(ah_code:str, market:str) -> str:
+    """
+        将ah_code转换为symbol, 补齐0
+                        
+        Example:
+            >>> ah_code_filter = (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 0x4a)
+                rs = client.get_board_members_quotes(board_symbol="881394",count=100, filter=ah_code_filter)
+                df = pd.DataFrame(rs)
+                df['ah_symbol'] = df.apply(lambda row: ah_code_to_symbol(row['ah_code'], row['market']), axis=1)
+    """
+    
+    if ah_code == 0:
+        return ""
+    
+    if market in [MARKET.SZ, MARKET.SH, MARKET.BJ]:
+        # 国内市场（A股）：ah_code 对应的是港股，需要格式化为5位，不足前面补0
+        ah_symbol = str(ah_code).zfill(5)
+    else:
+        # 港股市场：ah_code 对应的是A股，需要格式化为6位，不足前面补0
+        ah_symbol = str(ah_code).zfill(6)
+    
+    return ah_symbol
+    
+def lot_size_to_symbol(lotsize:str) -> str:
+    """
+        将lotsize转换为symbol, 补齐前缀
+                        
+    """
+    if lotsize == 0:
+        return ""
+    
+    dq_symbol = 880200 + int(lotsize)
+    
+    return str(dq_symbol)
 
 #### XXX: 分析了一下，貌似是类似utf-8的编码方式保存有符号数字
 def get_price(data, pos):

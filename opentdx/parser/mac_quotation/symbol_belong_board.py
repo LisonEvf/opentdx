@@ -10,6 +10,7 @@ from opentdx.parser.baseParser import BaseParser, register_parser
 
 @register_parser(0x1218,1)
 class SymbolBelongBoard(BaseParser):
+    '''股票关联行情'''
     def __init__(self, symbol: str, market: MARKET):
 
 

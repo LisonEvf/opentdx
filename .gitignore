@@ -7,3 +7,4 @@ venv/
 .vscode/
 pip_install.sh
 demo*.py
+/*.csv

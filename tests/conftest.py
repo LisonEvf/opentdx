@@ -1,7 +1,7 @@
 import pytest
 
 from opentdx.client.exQuotationClient import exQuotationClient
-from opentdx.client.macQuotationClient import macQuotationClient
+from opentdx.client.macQuotationClient import macQuotationClient,macExQuotationClient
 from opentdx.client.quotationClient import QuotationClient
 from opentdx.tdxClient import TdxClient
 
@@ -39,6 +39,13 @@ def eqc():
 @pytest.fixture(scope="session")
 def mqc():
     client = macQuotationClient(True, True)
+    client.connect()
+    yield client
+    client.disconnect()
+    
+@pytest.fixture(scope="session")
+def meqc():
+    client = macExQuotationClient(True, True)
     client.connect()
     yield client
     client.disconnect()

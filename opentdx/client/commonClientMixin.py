@@ -1,11 +1,12 @@
-from typing import Union
+from typing import Union, List,  Optional
 
 import pandas as pd
 
 from .baseStockClient import update_last_ack_time
-from opentdx.const import ADJUST, BOARD_TYPE, CATEGORY, EX_CATEGORY, MARKET, PERIOD, EX_BOARD_TYPE, SORT_TYPE, SORT_ORDER, mac_hosts, mac_ex_hosts
-from opentdx.parser.mac_quotation import BoardCount, BoardList, BoardMembers, BoardMembersQuotes, SymbolBar, SymbolBelongBoard
+from opentdx.const import ADJUST, BOARD_TYPE, CATEGORY, EX_CATEGORY, EX_MARKET, MARKET, PERIOD, EX_BOARD_TYPE, SORT_TYPE, SORT_ORDER, mac_hosts, mac_ex_hosts
+from opentdx.parser.mac_quotation import BoardCount, BoardList, BoardMembers, BoardMembersQuotes, SymbolBar, SymbolBelongBoard, SymbolZJLX
 from opentdx.utils.log import log
+from opentdx.utils.bitmap import fields_to_filter
 from functools import wraps
 
 
@@ -88,16 +89,105 @@ class CommonClientMixin:
 
     @require_sp_mode
     @update_last_ack_time
-    def get_board_members_quotes(self, board_symbol: str | CATEGORY | EX_CATEGORY = "881001", count=100000, sort_type: SORT_TYPE = SORT_TYPE.CHANGE_PCT, sort_order=SORT_ORDER.DESC, filter=0):
+    def get_board_members_quotes(self, board_symbol: str | CATEGORY | EX_CATEGORY = "881001", count=100000, 
+                                 sort_type: SORT_TYPE = SORT_TYPE.CHANGE_PCT, 
+                                 sort_order=SORT_ORDER.DESC, 
+                                 fields: Optional[Union[str, List[str]]] = None,   # 新增：友好字段选择
+                                 filter=0):
+        """
+        获取板块成分股的实时行情报价
+        
+        分页获取指定板块成分股的实时行情数据，支持按涨跌幅、成交量等字段排序。
+        与 get_board_members 不同的是，此方法返回的是带有实时行情数据的成分股列表。
+        内部会自动处理分页逻辑，每次最多获取80条记录。
+        
+        Args:
+            board_symbol: 板块代码，如 "881001"（全部A股）
+                - 行业板块: 880xxx（如 "880761" 半导体）
+                - 概念板块: 880xxx（如 "880521" 人工智能）
+                - 地区板块: 880xxx
+                - 美股板块: HKxxxx （如"HK0287" 港股-药明系）
+                - 美股板块: USxxxx （如"US0495" 美股-加密货币）
+            count: 需要获取的最大记录数，默认100000
+            sort_type: 排序类型，默认按涨跌幅排序（SORT_TYPE.CHANGE_PCT）
+                - SORT_TYPE.CHANGE_PCT: 按涨跌幅排序（最常用）
+                - SORT_TYPE.VOLUME: 按成交量排序
+                - SORT_TYPE.AMOUNT: 按成交额排序
+                - SORT_TYPE.CODE: 按股票代码排序
+                - SORT_TYPE.PRICE: 按价格排序
+                - 其他排序类型参见 SORT_TYPE 枚举
+            sort_order: 排序顺序，默认降序（SORT_ORDER.DESC）
+                - SORT_ORDER.ASC: 升序（从小到大）
+                - SORT_ORDER.DESC: 降序（从大到小，如涨幅排行榜）
+                - SORT_ORDER.NONE: 不排序
+            filter: 过滤条件，默认0（不过滤）
+                - 0: 不过滤
+                - 1: 过滤停牌股票
+                
+        Returns:
+            list: 包含板块成分股实时行情的列表，每个元素为一个字典，包含：
+                - code: 股票代码（如 "000001"）
+                - name: 股票名称（如 "平安银行"）
+                - price: 当前价格
+                - open: 开盘价
+                - high: 最高价
+                - low: 最低价
+                - pre_close: 昨收价
+                - change: 涨跌额
+                - change_pct: 涨跌幅（百分比）
+                - vol: 成交量（手）
+                - amount: 成交额（元）
+                - buy_price: 买一价
+                - sell_price: 卖一价
+                - 等其他实时行情字段
+                
+        Example:
+            >>> # 获取板块涨幅排行（默认按涨跌幅降序）
+            >>> top_stocks = client.get_board_members_quotes('880761', count=10)
+            >>> for stock in top_stocks:
+            ...     print(f"{stock['name']}: {stock['change_pct']:.2f}%")
+            >>> 
+            >>> # 获取板块成交量排行（按成交量降序）
+            >>> volume_stocks = client.get_board_members_quotes('880761', count=20,
+            ...                                                  sort_type=SORT_TYPE.VOLUME,
+            ...                                                  sort_order=SORT_ORDER.DESC)
+            >>> 
+            >>> # 获取板块跌幅排行（按涨跌幅升序）
+            >>> drop_stocks = client.get_board_members_quotes('880761', count=10,
+            ...                                                sort_type=SORT_TYPE.CHANGE_PCT,
+            ...                                                sort_order=SORT_ORDER.ASC)
+            
+        Note:
+            - 此方法需要在 SP 模式下使用
+            - 内部会自动处理分页，每次请求最多80条记录
+            - 当返回的数据量小于请求数量时，会自动停止分页
+            - 默认按涨跌幅降序排序，适合获取涨幅排行榜
+            - 返回的是实时行情数据，价格会随市场变化
+            - 如果板块不存在或无成分股，返回空列表
+            - 与 get_board_members 的区别：
+                * get_board_members: 返回基本信息列表
+                * get_board_members_quotes: 返回带实时行情的完整数据
+        """
         MAX_LIST_COUNT = 80
         security_list = []
         
         msg = f"TDX 板块成分报价：{board_symbol} 查询总量{count}"
         log.debug(msg)
         
+        if fields is not None:
+            filter_val = fields_to_filter(fields)
+        else:
+            filter_val = filter
+            
+        # 生成20字节位图
+        if filter_val == 0:
+            # 默认使用 basic 字段集（基础五档+成交量）
+            filter_val = fields_to_filter("basic")
+            
+        
         for start in range(0, count, MAX_LIST_COUNT):
             current_count = min(MAX_LIST_COUNT, count - start)
-            rs = self.call(BoardMembersQuotes(board_symbol=board_symbol, start=start, page_size=current_count, sort_type=sort_type, sort_order=sort_order, filter=filter))
+            rs = self.call(BoardMembersQuotes(board_symbol=board_symbol, start=start, page_size=current_count, sort_type=sort_type, sort_order=sort_order, filter=filter_val))
             part = rs["stocks"]
             
             if len(part) > 0:
@@ -107,11 +197,93 @@ class CommonClientMixin:
                 log.debug(f"{msg} 数据量不足，获取结束")
                 break
                 
+                
         return security_list
 
     @require_sp_mode
-    # @update_last_ack_time
-    def get_board_members(self, board_symbol: str, count=100000):
+    @update_last_ack_time
+    def top_board_members(self, board_symbol: str | CATEGORY | EX_CATEGORY = "881001", count=20):
+        """
+        获取板块活跃成分股排行榜(简单示例:如何使用filter或许自己需要的数据)
+        
+        分页获取指定板块成分股的实时行情数据，并自动在 filter 中启用 ACTIVITY（活跃度）字段。
+        支持按任意字段排序，默认按活跃度降序排列，适合获取最活跃的股票列表。
+        内部会自动处理分页逻辑，每次最多获取80条记录。
+        
+        Args:
+            board_symbol: 板块代码，如 "881001"（全部A股）
+                - 行业板块: 880xxx（如 "880761" 半导体）
+                - 概念板块: 880xxx（如 "880521" 人工智能）
+                - 地区板块: 880xxx
+                - 美股板块: HKxxxx （如"HK0287" 港股-药明系）
+                - 美股板块: USxxxx （如"US0495" 美股-加密货币）
+            count: 需要获取的最大记录数，默认20
+                
+
+        """
+        # ACTIVITY 字段的位位置是 0x59 (89)
+        ACTIVITY_BIT = 0x59
+        FLOAT_SHARES= 0xb
+        # 在用户提供的 filter 基础上，启用 ACTIVITY 字段
+        enhanced_filter = (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << ACTIVITY_BIT) | (1 << FLOAT_SHARES)
+
+        
+        
+        return self.get_board_members_quotes(
+            board_symbol=board_symbol,
+            count=count,
+            sort_type=SORT_TYPE.ACTIVITY,
+            sort_order=SORT_ORDER.DESC,
+            filter=enhanced_filter
+        )
+
+    @require_sp_mode
+    @update_last_ack_time
+    def get_board_members(self, board_symbol: str | CATEGORY | EX_CATEGORY = "881001", count=100000, sort_type: SORT_TYPE = SORT_TYPE.CODE, sort_order=SORT_ORDER.NONE, filter=0):
+        """
+        获取板块成分股列表
+        
+        分页获取指定板块的成分股信息，支持排序和过滤。
+        内部会自动处理分页逻辑，每次最多获取80条记录。
+        
+        Args:
+            board_symbol: 板块代码，如 "881001"（全部A股）
+                - 行业板块: 880xxx
+                - 概念板块: 880xxx  
+                - 地区板块: 880xxx
+            count: 需要获取的最大记录数，默认100000
+            sort_type: 排序类型，默认按代码排序（SORT_TYPE.CODE）
+                - SORT_TYPE.CODE: 按股票代码排序
+                - SORT_TYPE.VOLUME: 按成交量排序
+                - SORT_TYPE.AMOUNT: 按成交额排序
+                - 其他排序类型参见 SORT_TYPE 枚举
+            sort_order: 排序顺序，默认不排序（SORT_ORDER.NONE）
+                - SORT_ORDER.ASC: 升序
+                - SORT_ORDER.DESC: 降序
+                - SORT_ORDER.NONE: 不排序
+            filter: 过滤条件，默认0（不过滤）
+                
+        Returns:
+            list: 包含板块成分股信息的列表，每个元素为一个字典，包含：
+                - code: 股票代码
+                - name: 股票名称
+                
+        Example:
+            >>> # 获取行业板块成分股
+            >>> members = client.get_board_members('880761', count=50)
+            >>> print(f"共获取 {len(members)} 只股票")
+            >>> 
+            >>> # 按成交量降序获取板块成分股
+            >>> members = client.get_board_members('880761', count=20, 
+            ...                                    sort_type=SORT_TYPE.VOLUME,
+            ...                                    sort_order=SORT_ORDER.DESC)
+            
+        Note:
+            - 此方法需要在 SP 模式下使用
+            - 内部会自动处理分页，每次请求最多80条记录
+            - 当返回的数据量小于请求数量时，会自动停止分页
+            - 如果板块不存在或无成分股，返回空列表
+        """
         MAX_LIST_COUNT = 80
         security_list = []
         
@@ -120,7 +292,7 @@ class CommonClientMixin:
         
         for start in range(0, count, MAX_LIST_COUNT):
             current_count = min(MAX_LIST_COUNT, count - start)
-            rs = self.call(BoardMembers(board_symbol=board_symbol, start=start, page_size=current_count))
+            rs = self.call(BoardMembers(board_symbol=board_symbol, start=start, page_size=current_count, sort_type=sort_type, sort_order=sort_order, filter=filter))
             part = rs["stocks"]
             
             if len(part) > 0:
@@ -129,8 +301,20 @@ class CommonClientMixin:
             if len(part) < current_count:
                 log.debug(f"{msg} 数据量不足，获取结束")
                 break
-                
+
         return security_list
+    
+    @require_sp_mode
+    @update_last_ack_time
+    def count_board_members(self, board_symbol: str | CATEGORY | EX_CATEGORY = "881001", count=1, sort_type: SORT_TYPE = SORT_TYPE.CODE, sort_order=SORT_ORDER.NONE, filter=0):
+
+        msg = f"TDX 板块成员：{board_symbol} 查询总量{count}"
+        log.debug(msg)
+        
+        rs = self.call(BoardMembers(board_symbol=board_symbol, start=0, page_size=count, sort_type=sort_type, sort_order=sort_order, filter=filter))
+        # total = rs["total"]
+
+        return rs
     
     @require_sp_mode
     @update_last_ack_time
@@ -139,11 +323,121 @@ class CommonClientMixin:
         df = self.call(parser)
         return df
     
+    @require_sp_mode
+    @update_last_ack_time
+    def get_symbol_zjlx(self, symbol: str, market: MARKET) -> pd.DataFrame:
+        """
+        获取股票资金流向数据
+        
+        Args:
+            symbol: 股票代码
+            market: 市场类型（仅支持 MARKET 类型，不支持 EX_MARKET）
+            
+        Returns:
+            DataFrame: 包含资金流向信息的DataFrame，包含以下列：
+                - 今日主力流入: 今日主力资金流入金额
+                - 今日主力流出: 今日主力资金流出金额
+                - 今日散户流入: 今日散户资金流入金额
+                - 今日散户流出: 今日散户资金流出金额
+                - 5日主买: 5日主力买入金额
+                - 5日主卖: 5日主力卖出金额
+                - 5日超大单净额: 5日超大单净流入金额
+                - 5日大单净额: 5日大单净流入金额
+                - 5日中单净额: 5日中单净流入金额
+                - 5日小单净额: 5日小单净流入金额
+                
+                衍生指标：
+                - 今日主力净流入: 今日主力流入 - 今日主力流出
+                - 今日散户净流入: 今日散户流入 - 今日散户流出
+                - 5日主力净流入: 5日主买 - 5日主卖
+                
+        Raises:
+            TypeError: 当 market 参数不是 MARKET 类型时抛出
+        """
+        # 仅支持 MARKET 类型（A股市场），不支持 EX_MARKET（扩展市场）
+        if not isinstance(market, MARKET):
+            raise TypeError(f"market 参数必须为 MARKET 类型，当前类型: {type(market).__name__}")
+            
+        parser = SymbolZJLX(symbol=symbol, market=market)
+        df = self.call(parser)
+        return df
+
     @require_sp_mode    
     @update_last_ack_time
     def get_symbol_bars(
-        self, market: MARKET, code: str, period: PERIOD, times: int = 1, start: int = 0, count: int = 800, fq: ADJUST = ADJUST.NONE
+        self, market: MARKET | EX_MARKET, code: str, period: PERIOD, times: int = 1, start: int = 0, count: int = 800, fq: ADJUST = ADJUST.NONE
     ):
+        """
+        获取股票/港股/美股/板块/ETF等的K线数据
+        
+        分页获取指定股票的历史K线数据，支持多种周期和复权设置。
+        内部会自动处理分页逻辑，每次最多获取700条K线数据。
+
+        Args:
+            market: 市场类型，支持A股市场和扩展市场
+                - MARKET.SH: 上海证券交易所
+                - MARKET.SZ: 深圳证券交易所  
+                - EX_MARKET.HK: 港股市场
+                - EX_MARKET.US: 美股市场
+                - 其他市场类型参见 MARKET 和 EX_MARKET 枚举
+            code: 股票代码，如 "000001"（平安银行）、"00700"（腾讯控股）
+                - A股代码格式：6位数字
+                - 港股代码格式：5位数字（可能以0开头）
+                - 美股代码格式：字母组成
+            period: K线周期类型，如 PERIOD.MIN1（1分钟）、PERIOD.DAY（日线）
+                - PERIOD.MIN1: 1分钟线
+                - PERIOD.MIN5: 5分钟线
+                - PERIOD.MIN15: 15分钟线
+                - PERIOD.MIN30: 30分钟线
+                - PERIOD.HOUR: 1小时线
+                - PERIOD.DAY: 日线
+                - PERIOD.WEEK: 周线
+                - PERIOD.MONTH: 月线
+                - 其他周期类型参见 PERIOD 枚举
+            times: 重复次数，默认为1（通常不需要修改）
+            start: 开始位置，默认为0（从第一条数据开始获取）
+            count: 需要获取的最大K线数量，默认800
+                - 实际每次请求最多700条（受接口限制）
+                - 内部会自动分页处理超过700条的数据
+            fq: 复权类型，默认不复权（ADJUST.NONE）
+                - ADJUST.NONE: 不复权
+                - ADJUST.FORWARD: 前复权
+                - ADJUST.BACKWARD: 后复权
+                - 其他复权类型参见 ADJUST 枚举
+
+        Returns:
+            list: 包含K线数据的列表，每个元素为一个字典，包含：
+                - datetime: 时间戳
+                - open: 开盘价
+                - high: 最高价
+                - low: 最低价
+                - close: 收盘价
+                - volume: 成交量
+                - amount: 成交额
+                - 等其他K线相关字段
+
+        Example:
+            >>> # 获取平安银行的日线数据（最近100条）
+            >>> bars = client.get_symbol_bars(MARKET.SZ, '000001', PERIOD.DAY, count=100)
+            >>> print(f"共获取 {len(bars)} 条K线数据")
+            >>> 
+            >>> # 获取贵州茅台的前复权日线数据
+            >>> bars = client.get_symbol_bars(MARKET.SH, '600519', PERIOD.DAY, count=200, fq=ADJUST.FORWARD)
+            >>> 
+            >>> # 获取港股腾讯控股的小时线数据
+            >>> bars = client.get_symbol_bars(EX_MARKET.HK, '00700', PERIOD.HOUR, count=50)
+            >>> 
+            >>> # 获取美股苹果公司的5分钟线
+            >>> bars = client.get_symbol_bars(EX_MARKET.US, 'AAPL', PERIOD.MIN5, count=200)
+
+        Note:
+            - 此方法需要在 SP 模式下使用
+            - 内部会自动处理分页，每次请求最多700条K线数据
+            - 当返回的数据量小于请求数量时，会自动停止分页
+            - 如果股票代码不存在或没有K线数据，返回空列表
+            - 对于大数量请求，会自动分页处理以提高效率
+            - 支持A股、港股、美股等多个市场的K线数据获取
+        """
         MAX_LIST_COUNT = 700
         page_size = min(count, MAX_LIST_COUNT)
         security_list = []

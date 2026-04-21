@@ -3,10 +3,11 @@ from datetime import date
 import pandas as pd
 # from opentdx.client import macQuotationClient as QuotationClient, macExQuotationClient as exQuotationClient
 from opentdx.client import exQuotationClient , QuotationClient 
-from opentdx.const import ADJUST, BLOCK_FILE_TYPE, CATEGORY, EX_CATEGORY, FILTER_TYPE, MARKET, PERIOD, EX_BOARD_TYPE, BOARD_TYPE, SORT_TYPE
+from opentdx.const import ADJUST, BLOCK_FILE_TYPE, CATEGORY, EX_CATEGORY, EX_MARKET, FILTER_TYPE, MARKET, PERIOD, EX_BOARD_TYPE, BOARD_TYPE, SORT_TYPE
 from opentdx.const import mac_hosts , mac_ex_hosts
 from opentdx.parser.ex_quotation import file, goods
 from opentdx.parser.quotation import server, stock
+from opentdx.utils.help import industry_to_board_symbol, ah_code_to_symbol, lot_size_to_symbol
 
 
 if __name__ == "__main__":
@@ -15,8 +16,8 @@ if __name__ == "__main__":
     test_board = True
     
     
-    category = CATEGORY.FXJS
-    board_symbol = str(CATEGORY.FXJS.value)
+    category = CATEGORY.A
+    board_symbol = str(CATEGORY.A.value)
     client = QuotationClient()
     client.hosts = mac_hosts
     client.connect().login()
@@ -30,21 +31,69 @@ if __name__ == "__main__":
         
     print("使用get_stock_quotes_list查询板块股票")
     client.sp().connect().login()
-    rs = client.get_stock_quotes_list(category=category,count=10,sortType=SORT_TYPE.CHANGE_PCT)
-    df = pd.DataFrame(rs)
-    print(df)
+
     
+    # 测试资金流向
+    print("\n***** 测试资金流向 get_symbol_zjlx *****")
+    symbol = '603019'
+    market = MARKET.SH
+    try:
+        df_zjlx = client.get_symbol_zjlx(symbol=symbol, market=market)
+        if df_zjlx is not None and len(df_zjlx) > 0:
+            print(f"股票 {market} {symbol} 资金流向数据:")
+            print(df_zjlx.iloc[0])
+        else:
+            print(f"股票 {market} {symbol} 暂无资金流向数据")
+    except Exception as e:
+        print(f"获取资金流向数据失败: {e}")
+        import traceback
+        traceback.print_exc()
+    print("***** 资金流向测试结束 *****\n")
+            
+            
+    active_stocks = client.top_board_members(board_symbol=category)
+    df_active = pd.DataFrame(active_stocks)
+    
+    
+    print(df_active)
+
+    
+
     
     print("启用get_board_members_quotes查询板块股票")
     rs = client.get_board_members_quotes(board_symbol=category,count=10)
     df = pd.DataFrame(rs)
     print(df)
             
-    print("支持自定义字段 ohlc , 增加ah_code , 查询881394板块")
-    ah_code_filter = (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 0x4a)
-    rs = client.get_board_members_quotes(board_symbol="881394",count=10, filter=ah_code_filter)
+    print("支持自定义字段 ohlc , 增加ah_code , 查询881394板块-券商板块")
+    # TODO bit 的方式,改造成传入 枚举LIST. 
+    ah_code_bit = 0x4a
+    lot_size_bit = 0x23
+    industry_bit = 0x1c
+    ah_code_filter = (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << ah_code_bit) | (1 << lot_size_bit) | (1 << industry_bit)
+    rs = client.get_board_members_quotes(board_symbol="881394",count=100, filter=ah_code_filter)
     df = pd.DataFrame(rs)
+    
+    if 'ah_code' in df.columns:  # 正确的检查列是否存在的方式
+        df['ah_code'] = df.apply(lambda row: ah_code_to_symbol(row['ah_code'], row['market']), axis=1)
+
+    if 'lot_size' in df.columns:  # 正确的检查列是否存在的方式
+        df['dq_symbol'] = df.apply(lambda row: lot_size_to_symbol(row['lot_size']), axis=1)
+        
     print(df)
+    
+    print("支持自定义字段 ohlc , 增加ah_code , 查询880201板块-黑龙江板块")
+
+    industry_bit = 0x1c
+    ah_code_filter = (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << industry_bit)
+    rs = client.get_board_members_quotes(board_symbol="880201",count=100, filter=ah_code_filter)
+    df = pd.DataFrame(rs)
+
+    if 'industry' in df.columns:  # 正确的检查列是否存在的方式
+        df['industry_symbol'] = df['industry'].apply(lambda x: industry_to_board_symbol(x))
+        
+    print(df)
+    
 
     
     print("支持自定义字段 ohlc")
@@ -82,7 +131,7 @@ if __name__ == "__main__":
     df = pd.DataFrame(rs)
     print(f"查询香港主板 {board_symbol} 成员数量: {len(df)} 展示部分:")
     print(df[:3])
-    exit()
+
 
     count = 40
     symbol = '600900'
@@ -94,18 +143,17 @@ if __name__ == "__main__":
     df['换手'] = df['换手'].round(2).abs()
     print(f"股票 {market} {symbol} {fq} 的前{count}个交易日行情数据如下:")
     print(df)
-    exit()
+
     
     exClient = exQuotationClient()
-    exClient.hosts = ex_mixin_hosts
-    exClient.connect().login()
+    exClient.hosts = mac_ex_hosts
+    exClient.sp().connect().login()
 
     board_symbol = "US0401"
     rs = exClient.get_board_members_quotes(board_symbol=board_symbol,count=2)
     print(rs)
 
-    
-    exit()
+
     
     if client.connect().login():
         symbol = '000100'
@@ -119,15 +167,6 @@ if __name__ == "__main__":
         print(pd.DataFrame(client.get_kline(market, symbol, PERIOD.DAILY, count=3, adjust=ADJUST.HFQ)))
         # part = client.call(stock.K_Line(MARKET.SZ, "000001", PERIOD.DAILY))
         
-
-    client = QuotationClient()
-    client.hosts = mixin_hosts
-    client.connect().login()
-
-        
-    exClient = exQuotationClient()
-    exClient.hosts = ex_mixin_hosts
-    exClient.connect().login()
 
     if test_board:
         print("板块列表查询 ")
@@ -179,7 +218,8 @@ if __name__ == "__main__":
         df = client.get_symbol_belong_board(symbol=symbol, market=market)
         print(f"股票 {market} {symbol} 所属板块: {len(df)} 展示部分:")
         print(df[:3])
-                
+        
+ 
                 
         # symbol = '00700'
         # market = EX_CATEGORY.HK_MAIN_BOARD
@@ -193,7 +233,6 @@ if __name__ == "__main__":
         # df = exClient.get_symbol_belong_board(symbol=symbol, market=market)
         # print(f"美股 {market} {symbol} 所属板块 返回结果与股票不太一致,未解析")
         # print(df[:3])
-    
     
 
     if test_symbol_bars :
@@ -223,7 +262,7 @@ if __name__ == "__main__":
         print("港股 美股 切换到 exClient, 出入参相同, float_shares为流通股,可以自行计算换手率")
         
         symbol = '00100'
-        market = EX_CATEGORY.HK_MAIN_BOARD
+        market = EX_MARKET.HK_MAIN_BOARD
         rs = exClient.get_symbol_bars(market, symbol, PERIOD.DAILY, count=count)
         df = pd.DataFrame(rs)
         print(f"港股 {market} {symbol} 的前{count}个交易日行情数据如下:")
@@ -231,14 +270,14 @@ if __name__ == "__main__":
         
         
         symbol = 'TSLA'
-        market = EX_CATEGORY.US_STOCK
+        market = EX_MARKET.US_STOCK
         rs = exClient.get_symbol_bars(market, symbol, PERIOD.WEEKLY, count=count)
         df = pd.DataFrame(rs)
         print(f"美股 {market} {symbol} 的前{count}个交易日行情数据如下:")
         print(df)
 
         symbol = 'HK0281'
-        market = EX_CATEGORY.EXTENDED_SECTOR_INDEX
+        market = EX_MARKET.EXTENDED_SECTOR_INDEX
         rs = exClient.get_symbol_bars(market, symbol, PERIOD.WEEKLY, count=count)
         df = pd.DataFrame(rs)
         print(f"港股板块 {market} {symbol} 的前{count}个交易日行情数据如下:")
@@ -246,7 +285,7 @@ if __name__ == "__main__":
         
         
         symbol = 'US0218'
-        market = EX_CATEGORY.EXTENDED_SECTOR_INDEX
+        market = EX_MARKET.EXTENDED_SECTOR_INDEX
         rs = exClient.get_symbol_bars(market, symbol, PERIOD.DAILY, count=count)
         df = pd.DataFrame(rs)
         print(f"美股板块 {market} {symbol} 的前10个交易日行情数据如下:")

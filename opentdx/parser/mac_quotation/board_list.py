@@ -10,19 +10,27 @@ from opentdx.parser.baseParser import BaseParser, register_parser
 class BoardCount(BaseParser):
     def __init__(
         self,
-        board_type: Union[BOARD_TYPE, EX_BOARD_TYPE] = BOARD_TYPE.ALL,
+        board_type: int | BOARD_TYPE | EX_BOARD_TYPE = BOARD_TYPE.ALL,
         start: int = 0,
         page_size: int = 150,
     ):
-        self.board_type = board_type
+        if isinstance(board_type, int):
+            board_code = board_type
+        else:
+            board_code = board_type.value
+
+        
+        self.board_type = board_code
+
         sort_column = 0  # 排序字段? 取不同的值会影响 等于0时候代表rise_speed
         sort_order = 1  # 不确定 sort_column 和 sort_order 具体如何联动
         self.body = struct.pack(
-            "<HHBBHH8x", page_size, board_type.value, sort_column, sort_order, start, 1
+            "<HHBBHH8x", page_size, board_code, sort_column, sort_order, start, 1
         )
 
     @override
     def deserialize(self, data):
+
         header_length = 4
         count_all, total = struct.unpack("<HH", data[:header_length])
 
@@ -34,16 +42,21 @@ class BoardCount(BaseParser):
 class BoardList(BaseParser):
     def __init__(
         self,
-        board_type: Union[BOARD_TYPE] = BOARD_TYPE.ALL,
+        board_type: int | BOARD_TYPE | EX_BOARD_TYPE = BOARD_TYPE.ALL,
         start: int = 0,
         page_size: int = 150,
     ):
-        self.board_type = board_type
+        if isinstance(board_type, int):
+            board_code = board_type
+        else:
+            board_code = board_type.value
+        
+        self.board_type = board_code
 
         sort_column = 0  # 排序字段? 取不同的值会影响 等于0时候代表rise_speed
         sort_order = 1  # 不确定 sort_column 和 sort_order 具体如何联动
         self.body = struct.pack(
-            "<HHBBHH8x", page_size, board_type.value, sort_column, sort_order, start, 1
+            "<HHBBHH8x", page_size, board_code, sort_column, sort_order, start, 1
         )
 
     @override
