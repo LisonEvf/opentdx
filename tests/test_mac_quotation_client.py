@@ -36,7 +36,31 @@ class TestMacQuotationClientMixin:
         assert isinstance(result2, list), f"qc 返回类型错误: {type(result2)}"
         assert len(result) == len(result2), f"返回数据长度不一致: mqc={len(result)}, qc={len(result2)}"
         
+class TestMacQuotationClientStock:
+    """股票市场 API"""
+    def test_get_market_monitor(self, mqc:macQuotationClient):
+        result = mqc.get_market_monitor(MARKET.SH)
+        assert result is not None
+        
+        df = pd.DataFrame(result)
+        if 'name' not in df.columns:  # 正确的检查列是否存在的方式
+            assert "未找到 [主力监控] 功能 的 name 字段"
 
+    def test_equal_market_monitor(self, mqc:macQuotationClient, qc):
+        result1 = mqc.get_market_monitor(MARKET.SH, start = 0, count=5)
+        result2 = qc.get_unusual(MARKET.SH, start = 0, count=5)
+        
+        # 验证数据类型和长度一致性
+        assert isinstance(result1, list), f"result1 应为列表类型，实际为 {type(result1)}"
+        assert isinstance(result2, list), f"result2 应为列表类型，实际为 {type(result2)}"
+        assert len(result1) == len(result2), f"两个结果长度不一致: {len(result1)} != {len(result2)}"
+        
+        # 过滤掉 name 列后比对其他字段
+        for i, (item1, item2) in enumerate(zip(result1, result2)):
+            filtered1 = {k: v for k, v in item1.items() if k != 'name'}
+            filtered2 = {k: v for k, v in item2.items() if k != 'name'}
+            
+            assert filtered1 == filtered2, f"第 {i} 条记录比对失败:\n  过滤后 result1: {filtered1}\n  过滤后 result2: {filtered2}"
 
 class TestMacQuotationClientBoard:
     """板块 API"""

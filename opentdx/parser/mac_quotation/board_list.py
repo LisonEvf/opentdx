@@ -1,5 +1,4 @@
 import struct
-from typing import Union
 from opentdx._typing import override
 
 from opentdx.const import BOARD_TYPE, EX_BOARD_TYPE, EX_MARKET, MARKET
@@ -71,13 +70,9 @@ class BoardList(BaseParser):
         # print(count_all, total)
 
         result = []
-
-        market_obj = MARKET
-        symbol_market_obj = MARKET
-
-        if isinstance(self.board_type, EX_BOARD_TYPE):
-            market_obj = EX_MARKET
-            symbol_market_obj = EX_MARKET
+        
+        fmt = "<H6s16x44sfff   H6s16x44sfff"
+        fmt_length = struct.calcsize(fmt)
 
         for i in range(count):
             row_data = data[
@@ -85,9 +80,6 @@ class BoardList(BaseParser):
             ]
             if len(row_data) < row_length:
                 continue
-
-            fmt = "<H6s16x44sfff   H6s16x44sfff"
-            fmt_length = struct.calcsize(fmt)
 
             (
                 market,
@@ -106,13 +98,13 @@ class BoardList(BaseParser):
 
             result.append(
                 {
-                    "market": market_obj(market),
+                    "market": MARKET(market) if market <=3 else EX_MARKET(market),
                     "code": code.decode("gbk").replace("\x00", ""),
                     "name": name.decode("gbk").replace("\x00", ""),
                     "price": price,
                     "rise_speed": rise_speed,
                     "pre_close": pre_close,
-                    "symbol_market": symbol_market_obj(symbol_market),
+                    "symbol_market": MARKET(symbol_market) if symbol_market <=3 else EX_MARKET(symbol_market),
                     "symbol_code": symbol_code.decode("gbk").replace("\x00", ""),
                     "symbol_name": symbol_name.decode("gbk").replace("\x00", ""),
                     "symbol_price": symbol_price,
