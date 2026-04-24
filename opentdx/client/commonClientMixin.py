@@ -2,9 +2,10 @@ from typing import Union, List,  Optional
 
 import pandas as pd
 
+from datetime import date
 from .baseStockClient import update_last_ack_time
 from opentdx.const import ADJUST, BOARD_TYPE, CATEGORY, EX_CATEGORY, EX_MARKET, MARKET, PERIOD, EX_BOARD_TYPE, SORT_TYPE, SORT_ORDER, mac_hosts, mac_ex_hosts
-from opentdx.parser.mac_quotation import BoardCount, BoardList, BoardMembers, BoardMembersQuotes, SymbolBar, SymbolBelongBoard, SymbolZJLX
+from opentdx.parser.mac_quotation import BoardCount, BoardList, BoardMembers, BoardMembersQuotes, SymbolBar, SymbolBelongBoard, SymbolZJLX,SymbolTickChart
 from opentdx.utils.log import log
 from opentdx.utils.bitmap import FieldBit, PresetField
 from functools import wraps
@@ -441,3 +442,78 @@ class CommonClientMixin:
                 break
 
         return security_list
+    
+    @require_sp_mode    
+    @update_last_ack_time
+    def get_symbol_tick_chart(
+        self, market: MARKET | EX_MARKET, code: str, query_date : date = None
+    ):
+        """
+        获取指定股票的分时行情,240根k线(支持指定日期)
+        
+        获取单个股票或证券的实时行情数据，包括价格、成交量、买卖盘口等信息。
+        
+        Args:
+            market: 市场类型，支持普通市场和扩展市场
+                - MARKET: 普通市场枚举（如 MARKET.SH, MARKET.SZ）
+                - EX_MARKET: 扩展市场枚举（如 EX_MARKET.BJ, EX_MARKET.HK）
+            code: 证券代码，字符串格式
+                - A股: "000001"（平安银行）、"600000"（浦发银行）
+                - 港股: "00700"（腾讯控股）
+                - 美股: "AAPL"（苹果公司）
+            query_date: 查询日期，可选参数
+                - None: 获取实时行情（默认）
+                - date对象: 获取指定日期的历史行情
+            
+        Returns:
+            dict: 包含证券实时行情数据的字典，包含以下字段：
+                - market: 市场代码（整数）
+                - code: 证券代码（字符串）
+                - name: 证券名称（字符串）
+                - decimal: 小数位数（整数）
+                - category: 证券类别（整数）
+                - vol_unit: 成交量单位（浮点数）
+                - time: 数据时间戳（datetime对象）
+                - pre_close: 昨收价（浮点数）
+                - open: 开盘价（浮点数）
+                - high: 最高价（浮点数）
+                - low: 最低价（浮点数）
+                - close: 收盘价/当前价（浮点数）
+                - momentum: 涨跌额（浮点数）
+                - vol: 成交量（整数）
+                - amount: 成交额（浮点数）
+                - turnover: 换手率（浮点数）
+                - avg: 均价（浮点数）
+                - industry: 所属行业名称（字符串）
+                - industry_code: 行业板块代码（字符串）
+                - chart_data: 分时图数据列表，每个元素包含：
+                    - time: 时间点（time对象）
+                    - price: 价格（浮点数）
+                    - avg: 均价（浮点数）
+                    - vol: 成交量（整数）
+                    - momentum: 动量（浮点数）
+                
+        Example:
+            >>> # 获取平安银行实时行情
+            >>> quote = client.get_symbol_quotes(MARKET.SZ, "000001")
+            >>> print(f"{quote['name']}: {quote['close']}")
+            >>> 
+            >>> # 获取腾讯控股实时行情
+            >>> hk_quote = client.get_symbol_quotes(EX_MARKET.HK, "00700")
+            >>> 
+            >>> # 获取指定日期的历史行情
+            >>> from datetime import date
+            >>> historical_quote = client.get_symbol_quotes(
+            ...     MARKET.SH, 
+            ...     "600000", 
+            ...     query_date=date(2024, 1, 15)
+            ... )
+            >>> print(f"2024-01-15 收盘价: {historical_quote['close']}")
+        Note:
+            - 此方法必须在 SP 模式下使用（需先调用 sp() 方法）
+            - 返回的是实时行情数据，价格会随市场变化
+            - 如果证券不存在或停牌，可能返回空数据或部分字段为空
+            - query_date 参数用于获取历史行情，不传则获取实时数据
+            - chart_data 包含分时图数据，仅在实时行情时返回
+        """
+        return self.call(SymbolTickChart(market=market, code=code, query_date=query_date))

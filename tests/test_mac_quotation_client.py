@@ -1,6 +1,7 @@
 from opentdx.client import macQuotationClient
 from opentdx.const import ADJUST, BOARD_TYPE, CATEGORY, EX_BOARD_TYPE, EX_MARKET, MARKET, PERIOD, SORT_TYPE, SORT_ORDER
 import pandas as pd
+import pytest
 from opentdx.utils.help import industry_to_board_symbol, ah_code_to_symbol, lot_size_to_symbol
 from opentdx.utils.bitmap import FieldBit, PresetField
 
@@ -55,12 +56,23 @@ class TestMacQuotationClientStock:
         assert isinstance(result2, list), f"result2 应为列表类型，实际为 {type(result2)}"
         assert len(result1) == len(result2), f"两个结果长度不一致: {len(result1)} != {len(result2)}"
         
-        # 过滤掉 name 列后比对其他字段
+        # 只测试部分关键字段（排除 name 和 mac协议特有的 v1-v4 字段）
+        key_fields = ['index', 'market', 'code', 'time', 'desc', 'value', 'unusual_type']
+        
         for i, (item1, item2) in enumerate(zip(result1, result2)):
-            filtered1 = {k: v for k, v in item1.items() if k != 'name'}
-            filtered2 = {k: v for k, v in item2.items() if k != 'name'}
+            # 提取关键字段进行比对
+            filtered1 = {k: item1[k] for k in key_fields if k in item1}
+            filtered2 = {k: item2[k] for k in key_fields if k in item2}
             
-            assert filtered1 == filtered2, f"第 {i} 条记录比对失败:\n  过滤后 result1: {filtered1}\n  过滤后 result2: {filtered2}"
+            # 验证所有关键字段都存在
+            assert len(filtered1) == len(key_fields), \
+                f"第 {i} 条记录 result1 缺少字段: 期望{len(key_fields)}个，实际{len(filtered1)}个"
+            assert len(filtered2) == len(key_fields), \
+                f"第 {i} 条记录 result2 缺少字段: 期望{len(key_fields)}个，实际{len(filtered2)}个"
+            
+            # 比对关键字段
+            assert filtered1 == filtered2, \
+                f"第 {i} 条记录关键字段比对失败:\n  result1: {filtered1}\n  result2: {filtered2}"
 
 class TestMacQuotationClientBoard:
     """板块 API"""
@@ -287,3 +299,190 @@ class TestMacQuotationClientExchange:
         assert not df_300900.empty, "未找到 symbol 为 300900 的股票数据"
         target = df_300900.iloc[0]['industry_symbol']
         assert target == '881288', f"期望 300900 的 dq_symbol 为 '881288'，实际为 '{target}'"
+
+
+class TestMacQuotationClientTickChart:
+    """分时图 API - 真实请求测试"""
+
+    def test_get_symbol_tick_chart_stock_basic(self, mqc):
+        """测试A股基本分时图数据获取"""
+        result = mqc.get_symbol_tick_chart(MARKET.SZ, '000001')
+        
+        # 验证返回数据类型
+        assert isinstance(result, dict), f"返回类型应为dict，实际为 {type(result)}"
+        
+        # 验证必需字段存在
+        required_fields = [
+            'market', 'code', 'name', 'decimal', 'category', 'vol_unit',
+            'time', 'pre_close', 'open', 'high', 'low', 'close',
+            'momentum', 'vol', 'amount', 'turnover', 'avg',
+            'industry', 'industry_code', 'chart_data'
+        ]
+        
+        for field in required_fields:
+            assert field in result, f"缺少必需字段: {field}"
+        
+        # 验证基本信息正确性
+        assert result['code'] == '000001', f"股票代码错误: {result['code']}"
+        assert result['market'] == MARKET.SZ.value, f"市场代码错误: {result['market']}"
+        assert isinstance(result['name'], str) and len(result['name']) > 0, "股票名称不能为空"
+        
+        # 验证价格字段合理性
+        assert result['pre_close'] > 0, f"昨收价应大于0: {result['pre_close']}"
+        assert result['open'] >= 0, f"开盘价应>=0: {result['open']}"
+        assert result['high'] >= 0, f"最高价应>=0: {result['high']}"
+        assert result['low'] >= 0, f"最低价应>=0: {result['low']}"
+        assert result['close'] >= 0, f"收盘价应>=0: {result['close']}"
+        
+        # 验证高低价格逻辑
+        if result['high'] > 0 and result['low'] > 0:
+            assert result['high'] >= result['low'], \
+                f"最高价({result['high']})应>=最低价({result['low']})"
+        
+        # 验证成交量和成交额
+        assert result['vol'] >= 0, f"成交量应>=0: {result['vol']}"
+        assert result['amount'] >= 0, f"成交额应>=0: {result['amount']}"
+        
+        # 验证分时图数据
+        assert isinstance(result['chart_data'], list), "chart_data应为列表"
+        if len(result['chart_data']) > 0:
+            # 验证分时图数据结构
+            first_point = result['chart_data'][0]
+            assert 'time' in first_point, "分时图数据点缺少time字段"
+            assert 'price' in first_point, "分时图数据点缺少price字段"
+            assert 'avg' in first_point, "分时图数据点缺少avg字段"
+            assert 'vol' in first_point, "分时图数据点缺少vol字段"
+            assert 'momentum' in first_point, "分时图数据点缺少momentum字段"
+
+    def test_get_symbol_tick_chart_with_date(self, mqc):
+        """测试指定日期的历史分时图数据"""
+        from datetime import date
+        
+        # 使用一个最近的交易日（需要根据实际情况调整）
+        query_date = date(2024, 1, 15)
+        result = mqc.get_symbol_tick_chart(MARKET.SH, '600000', query_date)
+        
+        # 验证返回数据类型
+        assert isinstance(result, dict), f"返回类型应为dict，实际为 {type(result)}"
+        
+        # 验证基本信息
+        assert result['code'] == '600000', f"股票代码错误: {result['code']}"
+        assert result['market'] == MARKET.SH.value, f"市场代码错误: {result['market']}"
+        
+        # 验证时间字段（历史数据应该有具体的时间戳）
+        assert result['time'] is not None, "历史数据的时间戳不应为None"
+        
+        # 验证日期是否正确
+        if result['time']:
+            result_date = result['time'].date()
+            assert result_date == query_date, \
+                f"返回数据日期({result_date})与查询日期({query_date})不一致"
+        
+        # 验证价格数据有效性
+        assert result['pre_close'] > 0, f"昨收价应大于0: {result['pre_close']}"
+        assert result['close'] >= 0, f"收盘价应>=0: {result['close']}"
+        
+        # 历史数据的chart_data可能为空或包含数据
+        assert isinstance(result['chart_data'], list), "chart_data应为列表"
+
+    def test_get_symbol_tick_chart_invalid_date(self, mqc):
+        """测试无效日期的处理"""
+        from datetime import date
+        
+        # 测试未来日期（应该返回空数据或特定错误）
+        future_date = date(2030, 12, 31)
+        result = mqc.get_symbol_tick_chart(MARKET.SZ, '000001', future_date)
+        
+        # 验证返回类型仍然正确
+        assert isinstance(result, dict), "即使日期无效，也应返回字典类型"
+        
+        # 未来日期可能返回空数据或部分字段为空
+        # 这里主要验证不会抛出异常
+        assert result is not None, "返回值不应为None"
+
+    def test_get_symbol_tick_chart_weekend_date(self, mqc):
+        """测试周末日期的处理"""
+        from datetime import date
+        
+        # 2024-01-13 是星期六
+        weekend_date = date(2024, 1, 13)
+        result = mqc.get_symbol_tick_chart(MARKET.SH, '600000', weekend_date)
+        
+        # 验证返回类型
+        assert isinstance(result, dict), "周末日期查询应返回字典类型"
+        
+        # 周末无交易数据，但不应抛出异常
+        assert result is not None, "周末查询返回值不应为None"
+
+    def test_get_symbol_tick_chart_hk_stock(self, meqc):
+        """测试港股分时图数据获取"""
+        # 使用港股主板市场
+        result = meqc.get_symbol_tick_chart(EX_MARKET.HK_MAIN_BOARD, '00700')
+        
+        # 验证返回数据类型
+        assert isinstance(result, dict), f"返回类型应为dict，实际为 {type(result)}"
+        
+        assert isinstance(result['chart_data'], list), f" result['chart_data'] 返回类型应为list，实际为 {type(result['chart_data'])}"
+
+
+    def test_get_symbol_tick_chart_hk_with_date(self, meqc):
+        """测试港股历史分时图数据"""
+        from datetime import date
+        
+        # 使用一个最近的交易日
+        query_date = date(2024, 1, 15)
+        result = meqc.get_symbol_tick_chart(EX_MARKET.HK_MAIN_BOARD, '00700', query_date)
+        
+        # 港股历史数据可能返回None（取决于服务器支持情况）
+        # 这里主要验证不会抛出异常
+        if result is not None:
+            # 如果返回数据，验证其结构
+            assert isinstance(result, dict), f"返回类型应为dict，实际为 {type(result)}"
+            
+            # 验证基本信息
+            assert result['code'] == '00700', f"港股代码错误: {result['code']}"
+            assert result['market'] == EX_MARKET.HK_MAIN_BOARD.value, \
+                f"港股市场代码错误: {result['market']}"
+            
+            # 验证时间字段
+            if result['time']:
+                result_date = result['time'].date()
+                # 港股历史数据日期应与查询日期一致
+                assert result_date == query_date, \
+                    f"港股返回数据日期({result_date})与查询日期({query_date})不一致"
+            
+            # 验证价格数据
+            assert result['pre_close'] > 0, f"港股昨收价应大于0: {result['pre_close']}"
+        else:
+            # 如果返回None，说明服务器不支持该日期的历史数据，这也是可接受的
+            pass
+
+    def test_get_symbol_tick_chart_chart_data_structure(self, mqc):
+        """测试分时图数据结构的完整性"""
+        result = mqc.get_symbol_tick_chart(MARKET.SZ, '000001')
+        
+        # 验证chart_data是列表
+        assert isinstance(result['chart_data'], list), "chart_data必须是列表类型"
+        
+        # 如果有分时数据，验证每个数据点的结构
+        if len(result['chart_data']) > 0:
+            for i, point in enumerate(result['chart_data']):
+                assert isinstance(point, dict), f"第{i}个分时数据点应为字典类型"
+                
+                # 验证必需字段
+                assert 'time' in point, f"第{i}个分时数据点缺少time字段"
+                assert 'price' in point, f"第{i}个分时数据点缺少price字段"
+                assert 'avg' in point, f"第{i}个分时数据点缺少avg字段"
+                assert 'vol' in point, f"第{i}个分时数据点缺少vol字段"
+                assert 'momentum' in point, f"第{i}个分时数据点缺少momentum字段"
+                
+                # 验证字段类型
+                assert point['price'] >= 0, f"第{i}个数据点价格应>=0"
+                assert point['avg'] >= 0, f"第{i}个数据点均价应>=0"
+                assert point['vol'] >= 0, f"第{i}个数据点成交量应>=0"
+                
+                # time字段应该是datetime.time类型
+                from datetime import time as time_type
+                assert isinstance(point['time'], time_type), \
+                    f"第{i}个数据点time字段应为time类型，实际为{type(point['time'])}"
+

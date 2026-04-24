@@ -3,14 +3,21 @@ from datetime import date, datetime, time
 import struct
 from typing import Union
 
-from opentdx.const import EX_MARKET, MARKET, PERIOD
+from opentdx.const import EX_MARKET, MARKET
 from opentdx.parser.baseParser import BaseParser, register_parser
+from opentdx.utils.help import industry_to_board_symbol
 
 
 @register_parser(0x122D, 1)
-class Quotes(BaseParser):
-    def __init__(self, market: Union[MARKET, EX_MARKET], code: str):
-        self.body = struct.pack("<H22s7H", market.value, code.encode("gbk"), 0,0,1,0,0,0,0)
+class SymbolTickChart(BaseParser):
+    
+    def __init__(self, market: Union[MARKET, EX_MARKET], code: str, query_date: date = None ):
+        # ymd = 20260101
+        if query_date is not None:
+            ymd = int(query_date.strftime("%Y%m%d"))
+        else:
+            ymd = 0
+        self.body = struct.pack("<H22sI5H", market.value, code.encode("gbk"), ymd, 1,0,0,0,0)
 
     def deserialize(self, data):
         market, code, date_raw, u, price, count = struct.unpack("<H22sIBfH", data[:35])
@@ -48,5 +55,6 @@ class Quotes(BaseParser):
             "turnover": turnover,
             "avg": avg,
             "industry": industry,
+            "industry_code": industry_to_board_symbol(industry),
             "chart_data": chart_data
         }
