@@ -4,11 +4,10 @@ from opentdx._typing import override
 
 
 from opentdx.const import  MARKET
-from opentdx.parser.quotation import Unusual
-from opentdx.parser.baseParser import register_parser
+from opentdx.parser.baseParser import BaseParser,register_parser
 
 @register_parser(0x1237)
-class MarketMonitor(Unusual): # 主力监控
+class MarketMonitor(BaseParser): # 主力监控
     """
     主力监控
     和Unusual的区别在于，不需要Login() 也能访问
