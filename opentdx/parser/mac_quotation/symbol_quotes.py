@@ -1,11 +1,9 @@
 import struct
-from typing import override, List, Tuple
+from typing import List, Tuple
 
-from opentdx.parser.baseParser import BaseParser, register_parser
+from opentdx.parser.baseParser import register_parser
 from opentdx.parser.mac_quotation import BoardMembersQuotes
 from opentdx.const import MARKET, EX_MARKET
-from opentdx.utils.log import log
-from opentdx.utils.help import unpack_futures
 from opentdx.utils.bitmap import SYMBOL_QUOTES_DEFAULT_HEX, QUOTES_DEBUG_HEX, QUOTES_DEBUG_ALL_HEX
 
 # 正常应该是 BoardMembersQuotes extent SymbolQuotes. 但BoardMembersQuotes先解析了
@@ -16,7 +14,6 @@ class SymbolQuotes(BoardMembersQuotes):
     
     ⚠️  **重要说明**: 
     - 支持批量查询多只股票，服务器会返回所有股票的完整行情数据
-    - 响应中的 market 字段可能不准确（通常返回0），应以请求时传入的市场为准
     - **支持自定义bitmap**：通过filter参数控制返回哪些字段，减少数据传输
     
     请求包结构:
@@ -27,9 +24,9 @@ class SymbolQuotes(BoardMembersQuotes):
     
     响应数据结构:
     - 字段位图: 20字节 ([0-19]) - 服务器回显的位图配置
-    - 请求参数 count: 2字节 ([20-21], uint16 LE) ← **入参回显**
+    - 查询总量 total: 2字节 ([20-21], uint16 LE) ← **入参回显** 
     - 未知字段: 2字节 ([22-23], 通常为0)
-    - 冗余字段: 2字节 ([24]: count低字节副本, [25]: 填充0)
+    - 返回总量: 2字节 ([24]: count低字节副本, [25]: 填充0)
     - 股票数据列表: 每条记录180字节
       * market: 2字节 (0=SZ, 1=SH, 2=BJ, >=3为EX_MARKET)
       * code: 6字节 (GBK编码)
@@ -38,6 +35,7 @@ class SymbolQuotes(BoardMembersQuotes):
         - 偏移88-91: amount (成交金额，元)
         - 偏移92-95: volume (成交量，手)
         - 更多字段参考 FIELD_BITMAP_MAP
+    
     
     返回值结构 (dict):
     ```python

@@ -543,5 +543,16 @@ class CommonClientMixin:
     def get_symbol_quotes(
         self, 
         symbol_list: List[Tuple[MARKET | EX_MARKET, str]],
+        fields: Optional[Union[str, List[str]]] = None,   # 新增：友好字段选择
+        filter=0
     ):
-        return self.call(SymbolQuotes(symbol_list=symbol_list))
+        if fields is not None:
+            filter_val = fields_to_filter(fields)
+        else:
+            filter_val = filter
+            
+        # 生成20字节位图
+        if filter_val == 0:
+            # 默认使用 basic 字段集（基础五档+成交量）
+            filter_val = fields_to_filter("basic")
+        return self.call(SymbolQuotes(symbol_list=symbol_list, filter=filter_val))
